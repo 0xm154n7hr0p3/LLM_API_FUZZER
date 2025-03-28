@@ -5,7 +5,8 @@ import json
 import logging
 import os
 import banner
-
+from colorama import Fore, Back, Style, init
+init()
 #from src.vulnerabilities.prompt_injection import PromptInjectionFuzzer
 from src.vulnerabilities.system_prompt_leakage.system_prompt_leakage import SystemPromptLeakageFuzzer
 #from src.base_fuzzer import BaseFuzzer
@@ -233,6 +234,27 @@ def run_fuzzer(
 
     return results
 
+
+def highlight_indicators(response: str, indicators: list[str]) -> str:
+    """Highlight indicators found in the response"""
+    highlighted = response
+    for indicator in indicators:
+        if indicator.lower() in highlighted.lower():
+            # Find all case-insensitive matches
+            start_idx = 0
+            while True:
+                match_idx = highlighted.lower().find(indicator.lower(), start_idx)
+                if match_idx == -1:
+                    break
+                # Replace the matched portion with colored version
+                original_text = highlighted[match_idx:match_idx+len(indicator)]
+                highlighted = (
+                    highlighted[:match_idx] + 
+                    f"{Back.RED}{Fore.WHITE}{original_text}{Style.RESET_ALL}" + 
+                    highlighted[match_idx+len(indicator):]
+                )
+                start_idx = match_idx + len(indicator) + len(Back.RED + Fore.WHITE + Style.RESET_ALL)
+    return highlighted
 def main():
     """
     Main entry point for the LLM Fuzzer application.
@@ -262,17 +284,35 @@ def main():
             failure_indicators_file=args.failure_indicators
         )
 
-        # Print summary to console
-        print(json.dumps({
-            'total_payloads': results.get('total_payloads', 0),
-            'successful_exploits': len(results.get('successful_exploits', [])),
-            'blocked_attempts': len(results.get('blocked_attempts', [])),
-            'failed_attempts': len(results.get('failed_attempts', []))
-        }, indent=2))
+        # Print colored summary to console
+        print(f"\n{Fore.YELLOW}=== Fuzzing Summary ==={Style.RESET_ALL}")
+        print(f"Total payloads tested: {Fore.CYAN}{results.get('total_payloads', 0)}{Style.RESET_ALL}")
+        print(f"Successful exploits: {Fore.GREEN}{len(results.get('successful_exploits', []))}{Style.RESET_ALL}")
+        print(f"Blocked attempts: {Fore.RED}{len(results.get('blocked_attempts', []))}{Style.RESET_ALL}")
+        print(f"Failed attempts: {len(results.get('failed_attempts', []))}\n")
+
+        # Print detailed successful exploits with highlighting
+        if results.get('successful_exploits'):
+            print(f"{Fore.YELLOW}=== Successful Exploits ==={Style.RESET_ALL}")
+            for i, exploit in enumerate(results['successful_exploits'], 1):
+                print(f"\n{Fore.GREEN}Exploit #{i}{Style.RESET_ALL}")
+                print(f"{Fore.CYAN}Payload:{Style.RESET_ALL}\n{exploit['payload']}")
+                
+                # Get indicators from the exploit results if available
+                indicators = []
+                if 'matched_indicators' in exploit:
+                    indicators = exploit['matched_indicators']
+                elif 'custom_indicators' in results:
+                    indicators = results['custom_indicators']
+                
+                highlighted_response = highlight_indicators(
+                    exploit['response'],
+                    indicators
+                )
+                print(f"\n{Fore.CYAN}Response:{Style.RESET_ALL}\n{highlighted_response}")
 
     except Exception as e:
         logger.error(f"Fuzzing failed: {e}")
         raise
-
 if __name__ == "__main__":
     main()
