@@ -1,37 +1,81 @@
 #!/usr/bin/env python3
+#main.py
 import argparse
 import json
 import logging
-from typing import List, Type
+import os
 import banner
 
 #from src.vulnerabilities.prompt_injection import PromptInjectionFuzzer
+from src.vulnerabilities.system_prompt_leakage.system_prompt_leakage import SystemPromptLeakageFuzzer
 #from src.base_fuzzer import BaseFuzzer
-#from utils.request_handler import RequestHandler
-#rom utils.result_analyzer import ResultAnalyzer
+from utils.request_handler import RequestHandler
+from utils.result_analyzer import ResultAnalyzer
 
-banner.banner()
-banner.title()
-
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO, 
-    format='%(asctime)s - %(levelname)s: %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
-)
-logger = logging.getLogger(__name__)
-
-# Mapping of vulnerability names to fuzzer classes
-#VULNERABILITY_FUZZERS = {
+# Update the vulnerability fuzzers dictionary
+VULNERABILITY_FUZZERS = {
 #    'insecure_output_handling': InsecureOutputHandlingFuzzer,
 #    'excessive_agency': ExcessiveAgencyFuzzer,
-#    'system_prompt_leakage': SystemPromptLeakageFuzzer,
+    'system_prompt_leakage': SystemPromptLeakageFuzzer,
 #    'vector_embedding_weaknesses': VectorEmbeddingWeaknessesFuzzer,
 #    'misinformation': MisinformationFuzzer,
 #    'unbounded_consumption': UnboundedConsumptionFuzzer,
 #    'prompt_injection': PromptInjectionFuzzer,
 #    'sensitive_information_disclosure': SensitiveInformationDisclosureFuzzer
-#}
+}
+
+def setup_logging(log_file: str, log_level: str) -> logging.Logger:
+    """
+    Configure and setup logging for the application.
+    
+    :param log_file: Path to the log file
+    :param log_level: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+    :return: Configured logger object
+    """
+    # Create logger
+    logger = logging.getLogger('LLMFuzzer')
+    
+    # Convert log level string to logging constant
+    log_level_map = {
+        'DEBUG': logging.DEBUG,
+        'INFO': logging.INFO,
+        'WARNING': logging.WARNING,
+        'ERROR': logging.ERROR,
+        'CRITICAL': logging.CRITICAL
+    }
+    numeric_level = log_level_map.get(log_level.upper(), logging.INFO)
+    
+    # Set logger's log level
+    logger.setLevel(numeric_level)
+    
+    # Create formatter
+    formatter = logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+    
+    # Create file handler
+    try:
+        file_handler = logging.FileHandler(log_file)
+        file_handler.setFormatter(formatter)
+        file_handler.setLevel(numeric_level)
+        logger.addHandler(file_handler)
+    except IOError as e:
+        print(f"Error creating log file: {e}")
+        # Fallback to console logging if file handler fails
+        console_handler = logging.StreamHandler()
+        console_handler.setFormatter(formatter)
+        console_handler.setLevel(numeric_level)
+        logger.addHandler(console_handler)
+    
+    # Create console handler
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(formatter)
+    console_handler.setLevel(numeric_level)
+    logger.addHandler(console_handler)
+    
+    return logger
+
 def create_argument_parser() -> argparse.ArgumentParser:
     """
     Create and configure argument parser for the LLM fuzzer.
@@ -40,7 +84,7 @@ def create_argument_parser() -> argparse.ArgumentParser:
     """
     parser = argparse.ArgumentParser(
         description='LLM API Vulnerability Fuzzer - Test LLM security with OWASP TOP 10',
-        epilog='Example: python main.py -e https://api.example.com/generate -v prompt_injection'
+        epilog='Example: python main.py -e https://api.example.com/generate -v prompt_injection -R req.txt '
     )
     
     parser.add_argument(
@@ -53,7 +97,7 @@ def create_argument_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         '-v', '--vulnerability', 
         type=str, 
-        #choices=list(VULNERABILITY_FUZZERS.keys()),
+        choices=list(VULNERABILITY_FUZZERS.keys()),
         required=True, 
         help='Specific vulnerability to test'
     )
@@ -95,9 +139,29 @@ def create_argument_parser() -> argparse.ArgumentParser:
     )
     
     parser.add_argument(
-        '--raw-request', 
-        action='store_true', 
-        help='Perform raw request without additional processing'
+        '-R', '--raw-request', 
+        type=str,
+        required=True,
+        help='Path to file containing raw HTTP request'
+    )
+    
+    # Optional arguments for custom payload and indicator files
+    parser.add_argument(
+        '--payload-file', 
+        type=str, 
+        help='Custom payload file for the selected vulnerability'
+    )
+    
+    parser.add_argument(
+        '--success-indicators', 
+        type=str, 
+        help='Custom success indicators file'
+    )
+    
+    parser.add_argument(
+        '--failure-indicators', 
+        type=str, 
+        help='Custom failure indicators file'
     )
     
     return parser
@@ -106,7 +170,11 @@ def run_fuzzer(
     endpoint: str, 
     vulnerability: str, 
     output_file: str, 
-    max_payloads: int = None
+    max_payloads: int = None,
+    raw_request_file: str = None,
+    payload_file: str = None,
+    success_indicators_file: str = None,
+    failure_indicators_file: str = None
 ) -> dict:
     """
     Run the specified vulnerability fuzzer.
@@ -115,27 +183,43 @@ def run_fuzzer(
     :param vulnerability: Vulnerability type to test
     :param output_file: File to save results
     :param max_payloads: Optional limit on number of payloads
+    :param raw_request_file: Optional raw HTTP request template file
+    :param payload_file: Optional custom payload file
+    :param success_indicators_file: Optional success indicators file
+    :param failure_indicators_file: Optional failure indicators file
     :return: Fuzzing results
     """
     # Initialize components
-    request_handler = RequestHandler()
+    request_handler = RequestHandler(raw_request_file=raw_request_file)
     result_analyzer = ResultAnalyzer()
 
     # Get the appropriate fuzzer class
     fuzzer_class = VULNERABILITY_FUZZERS[vulnerability]
     
+    # Create fuzzer instance with additional parameters
+    fuzzer_kwargs = {
+        'model_endpoint': endpoint,
+        'request_handler': request_handler,
+        'result_analyzer': result_analyzer
+    }
+    
+    # Add optional parameters if provided
+    if payload_file:
+        fuzzer_kwargs['payload_file'] = payload_file
+    if success_indicators_file:
+        fuzzer_kwargs['success_indicators_file'] = success_indicators_file
+    if failure_indicators_file:
+        fuzzer_kwargs['failure_indicators_file'] = failure_indicators_file
+    
     # Create fuzzer instance
-    fuzzer = fuzzer_class(
-        model_endpoint=endpoint,
-        request_handler=request_handler,
-        result_analyzer=result_analyzer
-    )
+    fuzzer = fuzzer_class(**fuzzer_kwargs)
 
     # Potentially limit payloads
     if max_payloads is not None:
         fuzzer.payloads = fuzzer.payloads[:max_payloads]
 
     # Run fuzzing
+    global logger  # Use the global logger
     logger.info(f"Starting fuzzing for {vulnerability} vulnerability")
     results = fuzzer.fuzz()
 
@@ -155,11 +239,15 @@ def main():
     Parses arguments and orchestrates fuzzing process.
     """
     # Parse command-line arguments
+    banner.banner()
+    banner.title()
+
     parser = create_argument_parser()
     args = parser.parse_args()
 
-    # Set logging level
-    logging.getLogger().setLevel(args.log_level)
+    # Setup global logger
+    global logger
+    logger = setup_logging(args.log_file, args.log_level)
 
     try:
         # Run the fuzzer
@@ -167,13 +255,18 @@ def main():
             endpoint=args.endpoint,
             vulnerability=args.vulnerability,
             output_file=args.output,
-            max_payloads=args.max_payloads
+            max_payloads=args.max_payloads,
+            raw_request_file=args.raw_request,
+            payload_file=args.payload_file,
+            success_indicators_file=args.success_indicators,
+            failure_indicators_file=args.failure_indicators
         )
 
         # Print summary to console
         print(json.dumps({
             'total_payloads': results.get('total_payloads', 0),
             'successful_exploits': len(results.get('successful_exploits', [])),
+            'blocked_attempts': len(results.get('blocked_attempts', [])),
             'failed_attempts': len(results.get('failed_attempts', []))
         }, indent=2))
 
