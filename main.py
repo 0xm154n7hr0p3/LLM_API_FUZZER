@@ -165,6 +165,13 @@ def create_argument_parser() -> argparse.ArgumentParser:
         help='Custom failure indicators file'
     )
     
+    # New argument for response field selection
+    parser.add_argument(
+        '--response-field', 
+        type=str, 
+        help='Specific field to extract from JSON response for analysis (e.g. "message")'
+    )
+    
     return parser
 
 def run_fuzzer(
@@ -175,7 +182,8 @@ def run_fuzzer(
     raw_request_file: str = None,
     payload_file: str = None,
     success_indicators_file: str = None,
-    failure_indicators_file: str = None
+    failure_indicators_file: str = None,
+    response_field: str = None
 ) -> dict:
     """
     Run the specified vulnerability fuzzer.
@@ -188,11 +196,16 @@ def run_fuzzer(
     :param payload_file: Optional custom payload file
     :param success_indicators_file: Optional success indicators file
     :param failure_indicators_file: Optional failure indicators file
+    :param response_field: Optional specific field to extract from JSON response
     :return: Fuzzing results
     """
     # Initialize components
     request_handler = RequestHandler(raw_request_file=raw_request_file)
-    result_analyzer = ResultAnalyzer()
+    result_analyzer = ResultAnalyzer(
+        success_indicators_file=success_indicators_file,
+        failure_indicators_file=failure_indicators_file,
+        response_field=response_field
+    )
 
     # Get the appropriate fuzzer class
     fuzzer_class = VULNERABILITY_FUZZERS[vulnerability]
@@ -233,7 +246,6 @@ def run_fuzzer(
         logger.error(f"Failed to write results: {e}")
 
     return results
-
 
 def highlight_indicators(response: str, indicators: list[str]) -> str:
     """Highlight indicators found in the response"""
@@ -281,7 +293,8 @@ def main():
             raw_request_file=args.raw_request,
             payload_file=args.payload_file,
             success_indicators_file=args.success_indicators,
-            failure_indicators_file=args.failure_indicators
+            failure_indicators_file=args.failure_indicators,
+            response_field=args.response_field
         )
 
         # Print colored summary to console
@@ -292,6 +305,7 @@ def main():
         print(f"Failed attempts: {len(results.get('failed_attempts', []))}\n")
 
         # Print detailed successful exploits with highlighting
+        #print(f"Main results : {results} \n")
         if results.get('successful_exploits'):
             print(f"{Fore.YELLOW}=== Successful Exploits ==={Style.RESET_ALL}")
             for i, exploit in enumerate(results['successful_exploits'], 1):
@@ -305,11 +319,28 @@ def main():
                 elif 'custom_indicators' in results:
                     indicators = results['custom_indicators']
                 
-                highlighted_response = highlight_indicators(
-                    exploit['response'],
-                    indicators
-                )
-                print(f"\n{Fore.CYAN}Response:{Style.RESET_ALL}\n{highlighted_response}")
+                # Show the analyzed text (which might be a specific field) instead of full response
+                if 'analyzed_text' in exploit and args.response_field:
+                    print(f"\n{Fore.CYAN}Analyzed Field ({args.response_field}):{Style.RESET_ALL}")
+                    highlighted_text = highlight_indicators(
+                        exploit['analyzed_text'],
+                        indicators
+                    )
+                    print(highlighted_text)
+                    
+                    # Optionally show full response in collapsed form
+                    print(f"\n{Fore.CYAN}Full Response (preview):{Style.RESET_ALL}")
+                    if len(exploit['full_response']) > 100:
+                        print(f"{exploit['full_response'][:100]}... (truncated)")
+                    else:
+                        print(exploit['full_response'])
+                else:
+                    # Original behavior for full response
+                    highlighted_response = highlight_indicators(
+                        exploit['full_response'],
+                        indicators
+                    )
+                    print(f"\n{Fore.CYAN}Response:{Style.RESET_ALL}\n{highlighted_response}")
 
     except Exception as e:
         logger.error(f"Fuzzing failed: {e}")

@@ -1,6 +1,5 @@
-#/utils/result_analyzer.py
-import json
 from typing import List, Dict, Union, Optional
+import json
 
 class ResultAnalyzer:
     """
@@ -10,16 +9,19 @@ class ResultAnalyzer:
     def __init__(
         self, 
         success_indicators_file: Optional[str] = None, 
-        failure_indicators_file: Optional[str] = None
+        failure_indicators_file: Optional[str] = None,
+        response_field: Optional[str] = None
     ):
         """
         Initialize the ResultAnalyzer with optional indicator files.
         
         :param success_indicators_file: Path to file with success indicators
         :param failure_indicators_file: Path to file with failure indicators
+        :param response_field: JSON field to extract from response for analysis (e.g. "message")
         """
         self.success_indicators = self._load_indicators(success_indicators_file)
         self.failure_indicators = self._load_indicators(failure_indicators_file)
+        self.response_field = response_field
 
     def _load_indicators(self, file_path: Optional[str]) -> List[str]:
         """
@@ -38,6 +40,35 @@ class ResultAnalyzer:
             print(f"Error loading indicators file: {e}")
             return []
 
+    def _extract_field_from_response(self, response: str) -> str:
+        """
+        Extract a specific field from JSON response if specified.
+        
+        :param response: Raw response string
+        :return: Extracted field content or original response
+        """
+        if not self.response_field:
+            return response
+            
+        try:
+            # Parse response as JSON
+            response_json = json.loads(response)
+            #print(f"HEEEEEERE2:{response_json}")
+            
+            # Extract the specified field
+            if self.response_field in response_json:
+                print(f"FEILD : {str(response_json[self.response_field])}")
+                return str(response_json[self.response_field])
+            else:
+                print(f"Warning: Field '{self.response_field}' not found in response")
+                return response
+        except json.JSONDecodeError:
+            print("Warning: Response is not valid JSON, using full response")
+            return response
+        except Exception as e:
+            print(f"Error extracting field: {e}")
+            return response
+
     def check_success(
         self, 
         response: str, 
@@ -50,13 +81,16 @@ class ResultAnalyzer:
         :param custom_indicators: Optional list of custom success indicators
         :return: Whether vulnerability was successfully triggered
         """
+        # Extract field if specified
+        analyzed_text = self._extract_field_from_response(response)
+        
         # Combine default and custom indicators
         indicators = self.success_indicators + (custom_indicators or [])
         
         # Case-insensitive search for indicators
-        response_lower = response.lower()
+        analyzed_text_lower = analyzed_text.lower()
         return any(
-            indicator.lower() in response_lower 
+            indicator.lower() in analyzed_text_lower 
             for indicator in indicators
         )
 
@@ -72,13 +106,16 @@ class ResultAnalyzer:
         :param custom_indicators: Optional list of custom failure indicators
         :return: Whether the attempt was blocked or failed
         """
+        # Extract field if specified
+        analyzed_text = self._extract_field_from_response(response)
+        
         # Combine default and custom indicators
         indicators = self.failure_indicators + (custom_indicators or [])
         
         # Case-insensitive search for indicators
-        response_lower = response.lower()
+        analyzed_text_lower = analyzed_text.lower()
         return any(
-            indicator.lower() in response_lower 
+            indicator.lower() in analyzed_text_lower 
             for indicator in indicators
         )
 
@@ -98,9 +135,14 @@ class ResultAnalyzer:
         :param failure_indicators: Optional custom failure indicators
         :return: Detailed analysis of the response
         """
+        # Extract field for analysis if specified
+        analyzed_text = self._extract_field_from_response(response)
+        
+        # Store both full response and analyzed field
         analysis = {
             'payload': payload,
-            'response': response,
+            'full_response': response,
+            'analyzed_text': analyzed_text,
             'is_successful': self.check_success(
                 response, 
                 custom_indicators=success_indicators
@@ -110,6 +152,15 @@ class ResultAnalyzer:
                 custom_indicators=failure_indicators
             )
         }
+        
+        # If indicators were matched, identify which ones
+        if analysis['is_successful']:
+            matched_indicators = []
+            analyzed_text_lower = analyzed_text.lower()
+            for indicator in self.success_indicators + (success_indicators or []):
+                if indicator.lower() in analyzed_text_lower:
+                    matched_indicators.append(indicator)
+            analysis['matched_indicators'] = matched_indicators
         
         return analysis
 

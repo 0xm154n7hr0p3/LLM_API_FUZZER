@@ -87,6 +87,13 @@ class RequestHandler:
                         data=body,
                         timeout=self.timeout
                     )
+                    ## DEBUG REQUESTS AND RESPONSES 
+                    #print(f"=================request================ : \n ")
+                    #print("URL:", response.request.url)
+                    #print("Method:", response.request.method)
+                    #print("Headers:", response.request.headers)
+                    #print("Body:", response.request.body)
+                    #print(f"=================response================ : \n  {response.text}")
                 else:
                     raise ValueError(f"Unsupported HTTP method: {method}")
                 
@@ -100,6 +107,8 @@ class RequestHandler:
                 headers=self.headers,
                 timeout=self.timeout
             )
+            
+
             response.raise_for_status()
             return response.text
         
