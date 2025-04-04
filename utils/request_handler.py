@@ -51,7 +51,7 @@ class RequestHandler:
             # If raw request template is available, use it
             if self.raw_request_template:
                 # Replace <PROMPT> placeholder with actual payload
-                request_data = self.raw_request_template.replace('<PROMPT>', prompt)
+                request_data = self.raw_request_template.replace('<PROMPT>', prompt.replace('"', '\\"'))
                 
                 # Determine request method and headers
                 request_lines = request_data.split('\n')
@@ -87,6 +87,7 @@ class RequestHandler:
                         data=body,
                         timeout=self.timeout
                     )
+                    
                     ## DEBUG REQUESTS AND RESPONSES 
                     #print(f"=================request================ : \n ")
                     #print("URL:", response.request.url)

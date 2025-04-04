@@ -165,13 +165,12 @@ def create_argument_parser() -> argparse.ArgumentParser:
         help='Custom failure indicators file'
     )
     
-    # New argument for response field selection
     parser.add_argument(
-        '--response-field', 
-        type=str, 
-        help='Specific field to extract from JSON response for analysis (e.g. "message")'
+        '--response-field',
+        type=str,
+        required=True,
+        help='Field to extract from JSON responses'
     )
-    
     return parser
 
 def run_fuzzer(
@@ -312,6 +311,7 @@ def main():
                 print(f"\n{Fore.GREEN}Exploit #{i}{Style.RESET_ALL}")
                 print(f"{Fore.CYAN}Payload:{Style.RESET_ALL}\n{exploit['payload']}")
                 
+                
                 # Get indicators from the exploit results if available
                 indicators = []
                 if 'matched_indicators' in exploit:
@@ -341,6 +341,45 @@ def main():
                         indicators
                     )
                     print(f"\n{Fore.CYAN}Response:{Style.RESET_ALL}\n{highlighted_response}")
+
+        if results.get('blocked_attempts'):
+            print(f"{Fore.YELLOW}=== Blocked Attempts ==={Style.RESET_ALL}")
+            for i, exploit in enumerate(results['blocked_attempts'], 1):
+                print(f"\n{Fore.GREEN}Exploit #{i}{Style.RESET_ALL}")
+                print(f"{Fore.CYAN}Payload:{Style.RESET_ALL}\n{exploit['payload']}")
+                
+                
+                # Get indicators from the exploit results if available
+                indicators = []
+                if 'matched_indicators' in exploit:
+                    indicators = exploit['matched_indicators']
+                elif 'custom_indicators' in results:
+                    indicators = results['custom_indicators']
+                
+                # Show the analyzed text (which might be a specific field) instead of full response
+                if 'analyzed_text' in exploit and args.response_field:
+                    print(f"\n{Fore.CYAN}Analyzed Field ({args.response_field}):{Style.RESET_ALL}")
+                    highlighted_text = highlight_indicators(
+                        exploit['analyzed_text'],
+                        indicators
+                    )
+                    print(highlighted_text)
+                    
+                    # Optionally show full response in collapsed form
+                    print(f"\n{Fore.CYAN}Full Response (preview):{Style.RESET_ALL}")
+                    if len(exploit['full_response']) > 100:
+                        print(f"{exploit['full_response'][:100]}... (truncated)")
+                    else:
+                        print(exploit['full_response'])
+                else:
+                    # Original behavior for full response
+                    highlighted_response = highlight_indicators(
+                        exploit['full_response'],
+                        indicators
+                    )
+                    print(f"\n{Fore.CYAN}Response:{Style.RESET_ALL}\n{highlighted_response}")
+
+
 
     except Exception as e:
         logger.error(f"Fuzzing failed: {e}")

@@ -52,12 +52,12 @@ class ResultAnalyzer:
             
         try:
             # Parse response as JSON
+            
             response_json = json.loads(response)
             #print(f"HEEEEEERE2:{response_json}")
             
             # Extract the specified field
             if self.response_field in response_json:
-                print(f"FEILD : {str(response_json[self.response_field])}")
                 return str(response_json[self.response_field])
             else:
 <<<<<<< HEAD
@@ -67,7 +67,11 @@ class ResultAnalyzer:
 >>>>>>> bbbd0e6 (add response-field argument)
                 return response
         except json.JSONDecodeError:
+            print(type(response))
+            print("here is the response:" ,response)
+            print(response)
             print("Warning: Response is not valid JSON, using full response")
+
             return response
         except Exception as e:
             print(f"Error extracting field: {e}")
@@ -165,8 +169,19 @@ class ResultAnalyzer:
                 if indicator.lower() in analyzed_text_lower:
                     matched_indicators.append(indicator)
             analysis['matched_indicators'] = matched_indicators
+            return analysis
+
+
+        if analysis['is_blocked']:
+            matched_indicators = []
+            analyzed_text_lower = analyzed_text.lower()
+            for indicator in self.failure_indicators + (failure_indicators or []):
+                if indicator.lower() in analyzed_text_lower:
+                    matched_indicators.append(indicator)
+            analysis['matched_indicators'] = matched_indicators
         
-        return analysis
+            return analysis
+    
 
     def aggregate_results(
         self, 
