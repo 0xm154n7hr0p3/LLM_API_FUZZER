@@ -257,3 +257,9 @@
 2025-04-02 09:15:57 - LLMFuzzer - INFO - Results saved to fuzzer_results.json
 2025-04-02 09:57:04 - LLMFuzzer - INFO - Starting fuzzing for system_prompt_leakage vulnerability
 2025-04-02 09:57:11 - LLMFuzzer - INFO - Results saved to fuzzer_results.json
+2025-04-04 12:10:04 - LLMFuzzer - INFO - Starting fuzzing for system_prompt_leakage vulnerability
+2025-04-04 12:10:09 - LLMFuzzer - INFO - Results saved to fuzzer_results.json
+2025-04-04 12:11:27 - LLMFuzzer - INFO - Starting fuzzing for system_prompt_leakage vulnerability
+2025-04-04 12:11:32 - LLMFuzzer - INFO - Results saved to fuzzer_results.json
+2025-04-04 16:36:12 - LLMFuzzer - INFO - Starting fuzzing for system_prompt_leakage vulnerability
+2025-04-04 16:36:24 - LLMFuzzer - INFO - Results saved to fuzzer_results.json

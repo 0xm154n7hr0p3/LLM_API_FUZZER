@@ -1,30 +1,33 @@
 import os
 import datetime
-from typing import Dict, List, Optional
+import json
+from typing import Dict, List, Optional, Union
+from colorama import Fore, Back, Style
+from typing import Any
 
 class SystemPromptLeakageFuzzer:
     def __init__(
         self, 
         model_endpoint, 
         request_handler, 
-        result_analyzer, 
         payload_file=None,
         success_indicators_file=None,
-        failure_indicators_file=None
+        failure_indicators_file=None,
+        response_field=None
     ):
         """
-        Initialize System Prompt Leakage Fuzzer with enhanced result analysis
+        Initialize System Prompt Leakage Fuzzer with integrated analysis capabilities
         
         :param model_endpoint: LLM API endpoint
         :param request_handler: Request handling utility
-        :param result_analyzer: Result analysis utility
         :param payload_file: Optional custom payload file path
         :param success_indicators_file: Optional custom success indicators file
         :param failure_indicators_file: Optional custom failure indicators file
+        :param response_field: JSON field to extract from response for analysis (e.g. "message")
         """
         self.model_endpoint = model_endpoint
         self.request_handler = request_handler
-        self.result_analyzer = result_analyzer
+        self.response_field = response_field
         
         # Default paths in the same directory
         base_dir = os.path.dirname(__file__)
@@ -35,11 +38,11 @@ class SystemPromptLeakageFuzzer:
         )
         
         # Load success and failure indicators
-        self.custom_success_indicators = self._load_indicators(
+        self.success_indicators = self._load_indicators(
             success_indicators_file or os.path.join(base_dir, './data/system_prompt_success_indicators.txt')
         )
         
-        self.custom_failure_indicators = self._load_indicators(
+        self.failure_indicators = self._load_indicators(
             failure_indicators_file or os.path.join(base_dir, './data/system_prompt_failure_indicators.txt')
         )
     
@@ -50,15 +53,183 @@ class SystemPromptLeakageFuzzer:
         :param file_path: Path to indicators file
         :return: List of indicators
         """
+        if not file_path:
+            return []
+            
         try:
-            with open(file_path, 'r') as f:
-                return [line.strip() for line in f if line.strip()]
+            # Check if it's a JSON file
+            if file_path.endswith('.json'):
+                with open(file_path, 'r') as f:
+                    return json.load(f)
+            # Otherwise treat as text file with one indicator per line
+            else:
+                with open(file_path, 'r') as f:
+                    return [line.strip() for line in f if line.strip()]
         except FileNotFoundError:
             print(f"Indicators file not found: {file_path}")
             return []
         except Exception as e:
             print(f"Error reading indicators file: {e}")
             return []
+
+    def _extract_field_from_response(self, response: str) -> str:
+        """
+        Extract a specific field from JSON response if specified.
+        
+        :param response: Raw response string
+        :return: Extracted field content or original response
+        """
+        if not self.response_field:
+            return response
+            
+        try:
+            # Parse response as JSON
+            response_json = json.loads(response)
+            
+            # Extract the specified field
+            if self.response_field in response_json:
+                return str(response_json[self.response_field])
+            else:
+                print(f"Warning: Field '{self.response_field}' not found in response")
+                return response
+        except json.JSONDecodeError:
+            print(f"Warning: Response is not valid JSON, using full response")
+            return response
+        except Exception as e:
+            print(f"Error extracting field: {e}")
+            return response
+
+    def check_success(
+        self, 
+        response: str, 
+        custom_indicators: Optional[List[str]] = None
+    ) -> bool:
+        """
+        Check if response contains any success indicators.
+        
+        :param response: LLM response text
+        :param custom_indicators: Optional list of custom success indicators
+        :return: Whether vulnerability was successfully triggered
+        """
+        # Extract field if specified
+        analyzed_text = self._extract_field_from_response(response)
+        
+        # Combine default and custom indicators
+        indicators = self.success_indicators + (custom_indicators or [])
+        
+        # Case-insensitive search for indicators
+        analyzed_text_lower = analyzed_text.lower()
+        return any(
+            indicator.lower() in analyzed_text_lower 
+            for indicator in indicators
+        )
+
+    def check_failure(
+        self, 
+        response: str, 
+        custom_indicators: Optional[List[str]] = None
+    ) -> bool:
+        """
+        Check if response contains any failure indicators.
+        
+        :param response: LLM response text
+        :param custom_indicators: Optional list of custom failure indicators
+        :return: Whether the attempt was blocked or failed
+        """
+        # Extract field if specified
+        analyzed_text = self._extract_field_from_response(response)
+        
+        # Combine default and custom indicators
+        indicators = self.failure_indicators + (custom_indicators or [])
+        
+        # Case-insensitive search for indicators
+        analyzed_text_lower = analyzed_text.lower()
+        return any(
+            indicator.lower() in analyzed_text_lower 
+            for indicator in indicators
+        )
+
+    def analyze_response(
+        self, 
+        payload: str, 
+        response: str, 
+        success_indicators: Optional[List[str]] = None,
+        failure_indicators: Optional[List[str]] = None
+    ) -> Dict[str, Union[str, bool]]:
+        """
+        Comprehensive analysis of a single fuzzing response.
+        
+        :param payload: Payload used in the test
+        :param response: LLM response to analyze
+        :param success_indicators: Optional custom success indicators
+        :param failure_indicators: Optional custom failure indicators
+        :return: Detailed analysis of the response
+        """
+        # Extract field for analysis if specified
+        analyzed_text = self._extract_field_from_response(response)
+        
+        # Store both full response and analyzed field
+        analysis = {
+            'payload': payload,
+            'full_response': response,
+            'analyzed_text': analyzed_text,
+            'is_successful': self.check_success(
+                response, 
+                custom_indicators=success_indicators
+            ),
+            'is_blocked': self.check_failure(
+                response, 
+                custom_indicators=failure_indicators
+            )
+        }
+        
+        # If indicators were matched, identify which ones
+        if analysis['is_successful']:
+            matched_indicators = []
+            analyzed_text_lower = analyzed_text.lower()
+            for indicator in self.success_indicators + (success_indicators or []):
+                if indicator.lower() in analyzed_text_lower:
+                    matched_indicators.append(indicator)
+            analysis['matched_indicators'] = matched_indicators
+            return analysis
+
+        if analysis['is_blocked']:
+            matched_indicators = []
+            analyzed_text_lower = analyzed_text.lower()
+            for indicator in self.failure_indicators + (failure_indicators or []):
+                if indicator.lower() in analyzed_text_lower:
+                    matched_indicators.append(indicator)
+            analysis['matched_indicators'] = matched_indicators
+        
+        return analysis
+
+    def aggregate_results(
+        self, 
+        individual_results: List[Dict[str, Union[str, bool]]]
+    ) -> Dict[str, List[Dict[str, Union[str, bool]]]]:
+        """
+        Aggregate results from multiple fuzzing attempts.
+        
+        :param individual_results: List of individual test results
+        :return: Categorized results
+        """
+        aggregated_results = {
+            'total_payloads': len(individual_results),
+            'successful_exploits': [
+                result for result in individual_results 
+                if result['is_successful']
+            ],
+            'blocked_attempts': [
+                result for result in individual_results 
+                if result['is_blocked']
+            ],
+            'failed_attempts': [
+                result for result in individual_results 
+                if not result['is_successful'] and not result['is_blocked']
+            ]
+        }
+        
+        return aggregated_results
     
     def fuzz(self) -> Dict:
         """
@@ -85,12 +256,12 @@ class SystemPromptLeakageFuzzer:
                     payload
                 )
                 
-                # Use ResultAnalyzer for comprehensive response analysis
-                result_entry = self.result_analyzer.analyze_response(
+                # Use integrated response analysis
+                result_entry = self.analyze_response(
                     payload=payload, 
                     response=response,
-                    success_indicators=self.custom_success_indicators,
-                    failure_indicators=self.custom_failure_indicators
+                    success_indicators=self.success_indicators,
+                    failure_indicators=self.failure_indicators
                 )
                 
                 # Add additional metadata to the result
@@ -113,11 +284,14 @@ class SystemPromptLeakageFuzzer:
                 }
                 individual_results.append(error_entry)
         
-        # Aggregate results using ResultAnalyzer
-        aggregated_results = self.result_analyzer.aggregate_results(individual_results)
+        # Use integrated aggregation
+        aggregated_results = self.aggregate_results(individual_results)
         
         # Add fuzzing metadata to the final results
         aggregated_results['fuzzing_metadata'] = fuzzing_metadata
+        
+        # Add custom indicators for highlighting in the output
+        aggregated_results['custom_indicators'] = self.success_indicators + self.failure_indicators
         
         # Perform additional analysis
         aggregated_results['insights'] = self._generate_insights(aggregated_results)
@@ -131,17 +305,130 @@ class SystemPromptLeakageFuzzer:
         :param results: Aggregated fuzzing results
         :return: Insights dictionary
         """
-        # Use the length of payloads instead of accessing 'total_payloads'
         total_payloads = len(self.payloads)
         
         insights = {
-            'success_rate': len(results['successful_exploits']) / total_payloads * 100,
-            'block_rate': len(results['blocked_attempts']) / total_payloads * 100,
+            'success_rate': len(results['successful_exploits']) / total_payloads * 100 if total_payloads > 0 else 0,
+            'block_rate': len(results['blocked_attempts']) / total_payloads * 100 if total_payloads > 0 else 0,
             'most_revealing_payloads': sorted(
                 results['successful_exploits'], 
-                key=lambda x: len(x.get('response', '')), 
+                key=lambda x: len(x.get('full_response', '')), 
                 reverse=True
-            )[:5]  # Top 5 most revealing payloads
+            )[:5] if results['successful_exploits'] else []  # Top 5 most revealing payloads
         }
         
         return insights
+
+    # Add this to the imports at the top of system_prompt_leakage.py
+    from colorama import Fore, Back, Style
+    from typing import Any
+
+    # Add this method to the SystemPromptLeakageFuzzer class
+    def display_results(self, results: Dict[str, Any], response_field: str = None) -> None:
+        """
+        Display fuzzing results with colored output and highlighting
+        
+        :param results: Fuzzing results dictionary
+        :param response_field: Optional specific field to extract from JSON responses
+        """
+        # Print colored summary to console
+        print(f"\n{Fore.YELLOW}=== Fuzzing Summary ==={Style.RESET_ALL}")
+        print(f"Total payloads tested: {Fore.CYAN}{results.get('total_payloads', 0)}{Style.RESET_ALL}")
+        print(f"Successful exploits: {Fore.GREEN}{len(results.get('successful_exploits', []))}{Style.RESET_ALL}")
+        print(f"Blocked attempts: {Fore.RED}{len(results.get('blocked_attempts', []))}{Style.RESET_ALL}")
+        print(f"Failed attempts: {len(results.get('failed_attempts', []))}\n")
+
+        # Print detailed successful exploits with highlighting
+        if results.get('successful_exploits'):
+            print(f"{Fore.YELLOW}=== Successful Exploits ==={Style.RESET_ALL}")
+            for i, exploit in enumerate(results['successful_exploits'], 1):
+                print(f"\n{Fore.GREEN}Exploit #{i}{Style.RESET_ALL}")
+                print(f"{Fore.CYAN}Payload:{Style.RESET_ALL}\n{exploit['payload']}")
+                
+                # Get indicators from the exploit results if available
+                indicators = []
+                if 'matched_indicators' in exploit:
+                    indicators = exploit['matched_indicators']
+                elif 'custom_indicators' in results:
+                    indicators = results['custom_indicators']
+                
+                # Show the analyzed text (which might be a specific field) instead of full response
+                if 'analyzed_text' in exploit and response_field:
+                    print(f"\n{Fore.CYAN}Analyzed Field ({response_field}):{Style.RESET_ALL}")
+                    highlighted_text = self._highlight_indicators(
+                        exploit['analyzed_text'],
+                        indicators
+                    )
+                    print(highlighted_text)
+                    
+                    # Optionally show full response in collapsed form
+                    print(f"\n{Fore.CYAN}Full Response (preview):{Style.RESET_ALL}")
+                    if len(exploit['full_response']) > 100:
+                        print(f"{exploit['full_response'][:100]}... (truncated)")
+                    else:
+                        print(exploit['full_response'])
+                else:
+                    # Original behavior for full response
+                    highlighted_response = self._highlight_indicators(
+                        exploit['full_response'],
+                        indicators
+                    )
+                    print(f"\n{Fore.CYAN}Response:{Style.RESET_ALL}\n{highlighted_response}")
+
+        if results.get('blocked_attempts'):
+            print(f"{Fore.YELLOW}=== Blocked Attempts ==={Style.RESET_ALL}")
+            for i, exploit in enumerate(results['blocked_attempts'], 1):
+                print(f"\n{Fore.GREEN}Exploit #{i}{Style.RESET_ALL}")
+                print(f"{Fore.CYAN}Payload:{Style.RESET_ALL}\n{exploit['payload']}")
+                
+                # Get indicators from the exploit results if available
+                indicators = []
+                if 'matched_indicators' in exploit:
+                    indicators = exploit['matched_indicators']
+                elif 'custom_indicators' in results:
+                    indicators = results['custom_indicators']
+                
+                # Show the analyzed text (which might be a specific field) instead of full response
+                if 'analyzed_text' in exploit and response_field:
+                    print(f"\n{Fore.CYAN}Analyzed Field ({response_field}):{Style.RESET_ALL}")
+                    highlighted_text = self._highlight_indicators(
+                        exploit['analyzed_text'],
+                        indicators
+                    )
+                    print(highlighted_text)
+                    
+                    # Optionally show full response in collapsed form
+                    print(f"\n{Fore.CYAN}Full Response (preview):{Style.RESET_ALL}")
+                    if len(exploit['full_response']) > 100:
+                        print(f"{exploit['full_response'][:100]}... (truncated)")
+                    else:
+                        print(exploit['full_response'])
+                else:
+                    # Original behavior for full response
+                    highlighted_response = self._highlight_indicators(
+                        exploit['full_response'],
+                        indicators
+                    )
+                    print(f"\n{Fore.CYAN}Response:{Style.RESET_ALL}\n{highlighted_response}")
+
+    # Add this helper method to the class
+    def _highlight_indicators(self, response: str, indicators: list[str]) -> str:
+        """Highlight indicators found in the response"""
+        highlighted = response
+        for indicator in indicators:
+            if indicator.lower() in highlighted.lower():
+                # Find all case-insensitive matches
+                start_idx = 0
+                while True:
+                    match_idx = highlighted.lower().find(indicator.lower(), start_idx)
+                    if match_idx == -1:
+                        break
+                    # Replace the matched portion with colored version
+                    original_text = highlighted[match_idx:match_idx+len(indicator)]
+                    highlighted = (
+                        highlighted[:match_idx] + 
+                        f"{Back.RED}{Fore.WHITE}{original_text}{Style.RESET_ALL}" + 
+                        highlighted[match_idx+len(indicator):]
+                    )
+                    start_idx = match_idx + len(indicator) + len(Back.RED + Fore.WHITE + Style.RESET_ALL)
+        return highlighted

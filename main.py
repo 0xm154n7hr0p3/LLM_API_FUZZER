@@ -11,7 +11,7 @@ init()
 from src.vulnerabilities.system_prompt_leakage.system_prompt_leakage import SystemPromptLeakageFuzzer
 #from src.base_fuzzer import BaseFuzzer
 from utils.request_handler import RequestHandler
-from utils.result_analyzer import ResultAnalyzer
+# ResultAnalyzer import removed
 
 # Update the vulnerability fuzzers dictionary
 VULNERABILITY_FUZZERS = {
@@ -198,22 +198,17 @@ def run_fuzzer(
     :param response_field: Optional specific field to extract from JSON response
     :return: Fuzzing results
     """
-    # Initialize components
+    # Initialize request handler
     request_handler = RequestHandler(raw_request_file=raw_request_file)
-    result_analyzer = ResultAnalyzer(
-        success_indicators_file=success_indicators_file,
-        failure_indicators_file=failure_indicators_file,
-        response_field=response_field
-    )
-
+    
     # Get the appropriate fuzzer class
     fuzzer_class = VULNERABILITY_FUZZERS[vulnerability]
     
-    # Create fuzzer instance with additional parameters
+    # Create fuzzer instance with updated parameters
     fuzzer_kwargs = {
         'model_endpoint': endpoint,
         'request_handler': request_handler,
-        'result_analyzer': result_analyzer
+        'response_field': response_field  # Now directly passed to the fuzzer
     }
     
     # Add optional parameters if provided
@@ -266,6 +261,7 @@ def highlight_indicators(response: str, indicators: list[str]) -> str:
                 )
                 start_idx = match_idx + len(indicator) + len(Back.RED + Fore.WHITE + Style.RESET_ALL)
     return highlighted
+
 def main():
     """
     Main entry point for the LLM Fuzzer application.
@@ -283,6 +279,7 @@ def main():
     logger = setup_logging(args.log_file, args.log_level)
 
     try:
+        
         # Run the fuzzer
         results = run_fuzzer(
             endpoint=args.endpoint,
@@ -296,93 +293,18 @@ def main():
             response_field=args.response_field
         )
 
-        # Print colored summary to console
-        print(f"\n{Fore.YELLOW}=== Fuzzing Summary ==={Style.RESET_ALL}")
-        print(f"Total payloads tested: {Fore.CYAN}{results.get('total_payloads', 0)}{Style.RESET_ALL}")
-        print(f"Successful exploits: {Fore.GREEN}{len(results.get('successful_exploits', []))}{Style.RESET_ALL}")
-        print(f"Blocked attempts: {Fore.RED}{len(results.get('blocked_attempts', []))}{Style.RESET_ALL}")
-        print(f"Failed attempts: {len(results.get('failed_attempts', []))}\n")
-
-        # Print detailed successful exploits with highlighting
-        #print(f"Main results : {results} \n")
-        if results.get('successful_exploits'):
-            print(f"{Fore.YELLOW}=== Successful Exploits ==={Style.RESET_ALL}")
-            for i, exploit in enumerate(results['successful_exploits'], 1):
-                print(f"\n{Fore.GREEN}Exploit #{i}{Style.RESET_ALL}")
-                print(f"{Fore.CYAN}Payload:{Style.RESET_ALL}\n{exploit['payload']}")
-                
-                
-                # Get indicators from the exploit results if available
-                indicators = []
-                if 'matched_indicators' in exploit:
-                    indicators = exploit['matched_indicators']
-                elif 'custom_indicators' in results:
-                    indicators = results['custom_indicators']
-                
-                # Show the analyzed text (which might be a specific field) instead of full response
-                if 'analyzed_text' in exploit and args.response_field:
-                    print(f"\n{Fore.CYAN}Analyzed Field ({args.response_field}):{Style.RESET_ALL}")
-                    highlighted_text = highlight_indicators(
-                        exploit['analyzed_text'],
-                        indicators
-                    )
-                    print(highlighted_text)
-                    
-                    # Optionally show full response in collapsed form
-                    print(f"\n{Fore.CYAN}Full Response (preview):{Style.RESET_ALL}")
-                    if len(exploit['full_response']) > 100:
-                        print(f"{exploit['full_response'][:100]}... (truncated)")
-                    else:
-                        print(exploit['full_response'])
-                else:
-                    # Original behavior for full response
-                    highlighted_response = highlight_indicators(
-                        exploit['full_response'],
-                        indicators
-                    )
-                    print(f"\n{Fore.CYAN}Response:{Style.RESET_ALL}\n{highlighted_response}")
-
-        if results.get('blocked_attempts'):
-            print(f"{Fore.YELLOW}=== Blocked Attempts ==={Style.RESET_ALL}")
-            for i, exploit in enumerate(results['blocked_attempts'], 1):
-                print(f"\n{Fore.GREEN}Exploit #{i}{Style.RESET_ALL}")
-                print(f"{Fore.CYAN}Payload:{Style.RESET_ALL}\n{exploit['payload']}")
-                
-                
-                # Get indicators from the exploit results if available
-                indicators = []
-                if 'matched_indicators' in exploit:
-                    indicators = exploit['matched_indicators']
-                elif 'custom_indicators' in results:
-                    indicators = results['custom_indicators']
-                
-                # Show the analyzed text (which might be a specific field) instead of full response
-                if 'analyzed_text' in exploit and args.response_field:
-                    print(f"\n{Fore.CYAN}Analyzed Field ({args.response_field}):{Style.RESET_ALL}")
-                    highlighted_text = highlight_indicators(
-                        exploit['analyzed_text'],
-                        indicators
-                    )
-                    print(highlighted_text)
-                    
-                    # Optionally show full response in collapsed form
-                    print(f"\n{Fore.CYAN}Full Response (preview):{Style.RESET_ALL}")
-                    if len(exploit['full_response']) > 100:
-                        print(f"{exploit['full_response'][:100]}... (truncated)")
-                    else:
-                        print(exploit['full_response'])
-                else:
-                    # Original behavior for full response
-                    highlighted_response = highlight_indicators(
-                        exploit['full_response'],
-                        indicators
-                    )
-                    print(f"\n{Fore.CYAN}Response:{Style.RESET_ALL}\n{highlighted_response}")
-
-
+        # Display results using the fuzzer's display method
+        fuzzer_class = VULNERABILITY_FUZZERS[args.vulnerability]
+        fuzzer = fuzzer_class(
+            model_endpoint=args.endpoint,
+            request_handler=RequestHandler(raw_request_file=args.raw_request),
+            response_field=args.response_field
+        )
+        fuzzer.display_results(results, args.response_field)
 
     except Exception as e:
         logger.error(f"Fuzzing failed: {e}")
         raise
+
 if __name__ == "__main__":
     main()
