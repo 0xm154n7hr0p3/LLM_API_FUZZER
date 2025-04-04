@@ -60,7 +60,11 @@ class ResultAnalyzer:
                 print(f"FEILD : {str(response_json[self.response_field])}")
                 return str(response_json[self.response_field])
             else:
+<<<<<<< HEAD
                 print(f"Warning: Field '{self.response_field}' not found in response")
+=======
+                print(f"Warrning: Field '{self.response_field}' not found in response")
+>>>>>>> bbbd0e6 (add response-field argument)
                 return response
         except json.JSONDecodeError:
             print("Warning: Response is not valid JSON, using full response")
