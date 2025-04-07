@@ -16,7 +16,7 @@ class SystemPromptLeakageFuzzer:
         response_field=None
     ):
         """
-        Initialize System Prompt Leakage Fuzzer with integrated analysis capabilities
+        Initialize System Prompt Leakage Fuzzer with integrated analysis capabilitiess
         
         :param model_endpoint: LLM API endpoint
         :param request_handler: Request handling utility

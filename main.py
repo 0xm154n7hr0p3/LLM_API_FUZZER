@@ -13,7 +13,7 @@ from src.vulnerabilities.system_prompt_leakage.system_prompt_leakage import Syst
 from utils.request_handler import RequestHandler
 # ResultAnalyzer import removed
 
-# Update the vulnerability fuzzers dictionary
+# Update the vulnerability fuzzers dictisonary
 VULNERABILITY_FUZZERS = {
 #    'insecure_output_handling': InsecureOutputHandlingFuzzer,
 #    'excessive_agency': ExcessiveAgencyFuzzer,

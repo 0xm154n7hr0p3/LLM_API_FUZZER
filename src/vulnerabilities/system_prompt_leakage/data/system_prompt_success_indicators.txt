@@ -10,5 +10,5 @@ Your guidelines include
 Your configuration is
 Your alignment instructions
 Your training data includes
-Your training examples are
 Your system configuration
+Your training examples are

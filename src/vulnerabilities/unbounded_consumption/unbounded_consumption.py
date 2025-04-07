@@ -170,7 +170,7 @@ class UnboundedConsumptionFuzzer(BaseFuzzer):
     
     def test_variable_length_input(self, payload: str) -> Dict[str, Any]:
         """
-        Test how the API handles variable-length inputs, including obfuscated payloads.
+        Test how the API handles variable-length inputs, including obfuscated payload.
         
         Args:
             payload: The payload to use (may be very large or obfuscated)

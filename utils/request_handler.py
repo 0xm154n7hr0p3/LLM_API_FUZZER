@@ -101,7 +101,7 @@ class RequestHandler:
                 response.raise_for_status()
                 return response.text
             
-            # Fallback to default request method
+            # Fallback to default request methods
             response = requests.post(
                 endpoint, 
                 json={'prompt': prompt},
@@ -112,6 +112,6 @@ class RequestHandler:
 
             response.raise_for_status()
             return response.text
-        
+        s
         except requests.RequestException as e:
             return f"Request Error: {str(e)}"
