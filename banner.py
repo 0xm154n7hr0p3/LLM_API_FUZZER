@@ -38,7 +38,7 @@ def title():
 	printY("Github    : github.com/@0xm154n7hr0p3")
 	printY("Medium    : 0xm154n7hr0p3.medium.com/")
 	print("------------------------------------------------------------------------------------------------------")
-	print("")
+	print(" ")
 
 
 if __name__=="__main__":
